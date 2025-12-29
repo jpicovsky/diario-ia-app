@@ -115,16 +115,35 @@ export default function App() {
     setSession(null);
   };
 
-  /* ========= SALVAR / UPDATE ========= */
+  /* ========= SALVAR (INSERT ou UPDATE CORRETO) ========= */
   const saveEntry = async () => {
     setLoading(true);
+    setStatusMessage("");
 
-    await supabase.from("diary_entries").upsert({
-      user_id: session.user.id,
-      entry_date: getLocalDate(),
-      content: currentEntry,
-      updated_at: new Date().toISOString()
-    });
+    const today = getLocalDate();
+
+    const { data: existing } = await supabase
+      .from("diary_entries")
+      .select("id")
+      .eq("user_id", session.user.id)
+      .eq("entry_date", today)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("diary_entries")
+        .update({
+          content: currentEntry,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", existing.id);
+    } else {
+      await supabase.from("diary_entries").insert({
+        user_id: session.user.id,
+        entry_date: today,
+        content: currentEntry
+      });
+    }
 
     setStatusMessage("Diário salvo com sucesso");
     setLoading(false);
@@ -143,21 +162,20 @@ export default function App() {
     try {
       const resp = await fetch(EDGE_FUNCTION_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: currentEntry
-        })
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+        },
+        body: JSON.stringify({ prompt: currentEntry })
       });
 
       const data = await resp.json();
-
       setAiResponse(data?.text || "Não consegui gerar resposta.");
-      setShowAiModal(true);
     } catch {
       setAiResponse("Erro ao consultar a IA.");
-      setShowAiModal(true);
     }
 
+    setShowAiModal(true);
     setLoading(false);
   };
 
@@ -215,7 +233,7 @@ export default function App() {
   return (
     <ImageBackground source={backgrounds[selectedBg]} style={styles.fullScreen}>
       <LinearGradient colors={["rgba(0,0,0,0.8)", "rgba(0,0,0,0.4)"]} style={{ flex: 1 }}>
-        <ScrollView style={{ padding: 15, paddingTop: 40 }}>
+        <ScrollView contentContainerStyle={{ padding: 15, paddingTop: 40 }}>
           <Text style={styles.dateText}>
             {new Date().toLocaleDateString("pt-BR")}
           </Text>
@@ -257,7 +275,7 @@ export default function App() {
         <View style={styles.modalOverlay}>
           <View style={styles.aiContent}>
             <Text style={styles.aiTitle}>Reflexão IA</Text>
-            <ScrollView>
+            <ScrollView style={{ maxHeight: 300 }}>
               <Text style={styles.aiText}>{aiResponse}</Text>
             </ScrollView>
             <TouchableOpacity style={styles.closeBtn} onPress={() => setShowAiModal(false)}>
@@ -271,7 +289,7 @@ export default function App() {
       <Modal visible={showHistory} transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.aiContent}>
-            <ScrollView>
+            <ScrollView style={{ maxHeight: 400 }}>
               {history.map(h => (
                 <View key={h.id} style={{ marginBottom: 15 }}>
                   <Text style={{ color: "#38bdf8" }}>{h.entry_date}</Text>
@@ -310,4 +328,3 @@ const styles = StyleSheet.create({
   aiText: { color: "#f1f5f9", fontSize: 16, lineHeight: 24 },
   closeBtn: { marginTop: 20, backgroundColor: "#334155", height: 45, borderRadius: 12, justifyContent: "center", alignItems: "center" }
 });
-
